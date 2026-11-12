@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>메일 열람 기록</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #E9EEF2; --surface: #F7F9FB; --ink: #1C2B3A; --muted: #5E6E7E;
+    --line: #CBD5DE; --stamp: #1F6F5C; --stamp-soft: #DCEDE7; --warn: #9A4B1E;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121A22; --surface: #1A242E; --ink: #E3EAF0; --muted: #8FA0B0;
+      --line: #2C3A47; --stamp: #6CC3A8; --stamp-soft: #1D3530; --warn: #E0A27C;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 "IBM Plex Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  input, button { font: inherit; color: inherit; }
+  input {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; width: 100%;
+  }
+  button {
+    border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+    border-radius: 8px; padding: 10px 16px; cursor: pointer; white-space: nowrap; font-weight: 500;
+  }
+  button.ghost { background: transparent; color: var(--ink); border-color: var(--line); padding: 6px 12px; font-size: 14px; }
+  button.ghost:hover { border-color: var(--ink); }
+  button.danger { color: var(--warn); }
+  :focus-visible { outline: 2px solid var(--stamp); outline-offset: 2px; }
+  .row { display: flex; gap: 8px; }
+  .new { margin-bottom: 32px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+  .mail {
+    display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start;
+    padding: 20px 0; border-top: 1px solid var(--line);
+  }
+  .mail h2 { font-size: 17px; font-weight: 500; margin: 0 0 2px; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 13px; margin: 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  details { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  summary { cursor: pointer; }
+  details ul { list-style: none; padding: 0; margin: 8px 0 0; }
+  details li { padding: 3px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+  details li.ignored { opacity: 0.5; text-decoration: line-through; }
+
+  /* 열람된 메일에 찍히는 소인 */
+  .stamp {
+    width: 92px; height: 92px; border-radius: 50%;
+    border: 2px solid var(--stamp); color: var(--stamp);
+    display: grid; place-content: center; text-align: center;
+    transform: rotate(-8deg); position: relative;
+  }
+  .stamp::before {
+    content: ""; position: absolute; inset: 5px; border-radius: 50%;
+    border: 1px dashed var(--stamp); opacity: 0.6;
+  }
+  .stamp b { font-size: 18px; line-height: 1.1; }
+  .stamp span { font-size: 11px; line-height: 1.3; }
+  .stamp.fresh { background: var(--stamp-soft); }
+  .unread {
+    width: 92px; height: 92px; border-radius: 50%; border: 2px dashed var(--line);
+    color: var(--muted); display: grid; place-content: center; font-size: 13px;
+  }
+  .empty { padding: 40px 0; color: var(--muted); border-top: 1px solid var(--line); }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px;
+    font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+  @media (max-width: 520px) {
+    .mail { grid-template-columns: 1fr; }
+    .stamp, .unread { width: 72px; height: 72px; }
+    .stamp b { font-size: 15px; }
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>메일 열람 기록</h1>
+  <p class="sub">픽셀을 만들어 메일에 붙여넣으면, 상대가 열었을 때 여기에 소인이 찍혀요.</p>
+
+  <section id="login" hidden>
+    <form class="row" id="loginForm">
+      <input id="keyInput" type="password" placeholder="ADMIN_KEY" autocomplete="current-password" aria-label="관리자 키">
+      <button type="submit">들어가기</button>
+    </form>
+    <p class="hint" id="loginErr" hidden>키가 맞지 않아요. Vercel 환경변수 ADMIN_KEY 값을 확인하세요.</p>
+  </section>
+
+  <section id="app" hidden>
+    <form class="new" id="newForm">
+      <div class="row">
+        <input id="label" placeholder="받는 사람이나 제목 (예: 김대리 견적 회신)" aria-label="메모" maxlength="120">
+        <button type="submit">픽셀 만들기</button>
+      </div>
+      <p class="hint">만들면 픽셀이 클립보드에 복사돼요. Gmail 작성창 본문 끝에 붙여넣고 보낸 뒤 ‘보냄’을 누르세요. 그 전에 생긴 열람은 내 작성창 미리보기라 빼고 셉니다.</p>
+    </form>
+    <div id="list"></div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const GRACE_MS = 3 * 60 * 1000; // ‘보냄’을 안 눌렀을 때, 생성 후 이 시간 안의 열람은 무시
+const $ = (s) => document.querySelector(s);
+let key = "";
+try { key = localStorage.getItem("mp_key") || ""; } catch {}
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "x-admin-key": key, "content-type": "application/json", ...(opts.headers || {}) } });
+  if (r.status === 401) { showLogin(true); throw new Error("unauthorized"); }
+  if (!r.ok) throw new Error(r.status);
+  return r.status === 204 ? null : r.json();
+}
+
+function showLogin(err) {
+  $("#app").hidden = true; $("#login").hidden = false; $("#loginErr").hidden = !err;
+}
+
+const pixelUrl = (id) => `${location.origin}/p/${id}`;
+
+async function copyPixel(id) {
+  const src = pixelUrl(id);
+  const html = `<img src="${src}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0">`;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/html": new Blob([html], { type: "text/html" }),
+      "text/plain": new Blob([src], { type: "text/plain" }),
+    })]);
+    toast("픽셀을 복사했어요. Gmail 본문에 붙여넣으세요.");
+  } catch {
+    // ClipboardItem 미지원 브라우저: 화면에 그려서 선택 복사
+    const box = document.createElement("div");
+    box.contentEditable = "true"; box.innerHTML = html + "&#8203;";
+    Object.assign(box.style, { position: "fixed", left: "-9999px" });
+    document.body.appendChild(box);
+    const range = document.createRange(); range.selectNodeContents(box);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    document.execCommand("copy"); sel.removeAllRanges(); box.remove();
+    toast("픽셀을 복사했어요.");
+  }
+}
+
+function client(ua) {
+  if (/GoogleImageProxy/i.test(ua)) return "Gmail";
+  if (/YahooMailProxy/i.test(ua)) return "Yahoo";
+  if (/Outlook|Microsoft/i.test(ua)) return "Outlook";
+  if (/iPhone|iPad/i.test(ua)) return "iOS";
+  if (/Macintosh/i.test(ua)) return "Mac";
+  if (/Android/i.test(ua)) return "Android";
+  return "기타";
+}
+
+const fmt = (t) => new Date(t).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const fmtShort = (t) => {
+  const d = new Date(t), now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+    : `${d.getMonth() + 1}/${d.getDate()}`;
+};
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function render(tracks) {
+  const list = $("#list");
+  if (!tracks.length) {
+    list.innerHTML = `<p class="empty">아직 만든 픽셀이 없어요. 위에서 메모를 적고 첫 픽셀을 만들어 보세요.</p>`;
+    return;
+  }
+  list.innerHTML = tracks.map((t) => {
+    const cutoff = t.sentAt || t.createdAt + GRACE_MS;
+    const opens = t.opens.map((o) => ({ ...o, ignored: o.t < cutoff }));
+    const real = opens.filter((o) => !o.ignored);
+    const first = real[0], last = real[real.length - 1];
+    const fresh = last && Date.now() - last.t < 60 * 60 * 1000;
+    const badge = first
+      ? `<div class="stamp${fresh ? " fresh" : ""}" title="첫 열람 ${fmt(first.t)}"><b>열람</b><span>${fmtShort(first.t)}</span><span>${real.length}회</span></div>`
+      : `<div class="unread">안 읽음</div>`;
+    const sentInfo = t.sentAt ? `보냄 ${fmt(t.sentAt)}` : `만듦 ${fmt(t.createdAt)}`;
+    const lastInfo = last && real.length > 1 ? ` / 마지막 열람 ${fmt(last.t)}` : "";
+    return `
+      <article class="mail">
+        <div>
+          <h2>${esc(t.label)}</h2>
+          <p class="meta">${sentInfo}${lastInfo}</p>
+          <div class="actions">
+            <button class="ghost" data-act="copy" data-id="${t.id}">픽셀 복사</button>
+            ${t.sentAt ? "" : `<button class="ghost" data-act="sent" data-id="${t.id}">보냄</button>`}
+            <button class="ghost danger" data-act="del" data-id="${t.id}">삭제</button>
+          </div>
+          ${opens.length ? `<details><summary>요청 기록 ${opens.length}건</summary><ul>${
+            opens.slice().reverse().map((o) => `<li class="${o.ignored ? "ignored" : ""}" title="${esc(o.ua)}"><span>${fmt(o.t)}</span><span>${client(o.ua)}</span><span>${esc(o.ip)}</span></li>`).join("")
+          }</ul></details>` : ""}
+        </div>
+        ${badge}
+      </article>`;
+  }).join("");
+}
+
+async function load() {
+  try { render(await api("/api/tracks")); } catch (e) { if (e.message !== "unauthorized") toast("불러오지 못했어요: " + e.message); }
+}
+
+$("#loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  key = $("#keyInput").value.trim();
+  try { localStorage.setItem("mp_key", key); } catch {}
+  try { render(await api("/api/tracks")); $("#login").hidden = true; $("#app").hidden = false; } catch {}
+});
+
+$("#newForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const t = await api("/api/tracks", { method: "POST", body: JSON.stringify({ label: $("#label").value }) });
+  $("#label").value = "";
+  await copyPixel(t.id);
+  load();
+});
+
+$("#list").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]"); if (!b) return;
+  const id = b.dataset.id;
+  if (b.dataset.act === "copy") return copyPixel(id);
+  if (b.dataset.act === "sent") { await api(`/api/tracks?id=${encodeURIComponent(id)}`, { method: "PATCH" }); toast("보냄으로 표시했어요."); }
+  if (b.dataset.act === "del") { if (!confirm("이 기록을 삭제할까요?")) return; await api(`/api/tracks?id=${encodeURIComponent(id)}`, { method: "DELETE" }); toast("삭제했어요."); }
+  load();
+});
+
+if (key) { $("#app").hidden = false; load(); } else showLogin(false);
+setInterval(() => { if (!document.hidden && !$("#app").hidden) load(); }, 30000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#app").hidden) load(); });
+</script>
+</body>
+</html>
